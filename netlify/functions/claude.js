@@ -12,10 +12,15 @@ async function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-function kolomLetter(n) {
-  let s = ""; n++;
-  while (n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); }
-  return s;
+// Zet 0-based kolomindex om naar letter (0=A, 1=B, etc.)
+function kolomLetter(index) {
+  let letter = '';
+  let n = index;
+  while (n >= 0) {
+    letter = String.fromCharCode(65 + (n % 26)) + letter;
+    n = Math.floor(n / 26) - 1;
+  }
+  return letter;
 }
 
 exports.handler = async (event) => {
@@ -42,18 +47,45 @@ exports.handler = async (event) => {
   if (body.action === "sheets_write") {
     try {
       const sheets = await getSheetsClient();
-      const hResp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `${SHEET_TAB}!1:1` });
+
+      // Haal headers op (rij 1)
+      const hResp = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${SHEET_TAB}!1:1`,
+      });
       const sheetHeaders = hResp.data.values?.[0] || [];
-      const colAfb = sheetHeaders.indexOf("afbeelding_url");
-      const colAlt = sheetHeaders.indexOf("alt_tekst");
-      if (colAfb === -1 || colAlt === -1) return { statusCode: 400, headers, body: JSON.stringify({ error: "Kolommen niet gevonden" }) };
+
+      const colAfbIndex = sheetHeaders.indexOf("afbeelding_url");
+      const colAltIndex = sheetHeaders.indexOf("alt_tekst");
+
+      if (colAfbIndex === -1 || colAltIndex === -1) {
+        return { statusCode: 400, headers, body: JSON.stringify({
+          error: `Kolommen niet gevonden. Headers: ${sheetHeaders.join(', ')}`
+        })};
+      }
 
       const row = body.rowIndex;
-      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${SHEET_TAB}!${kolomLetter(colAfb)}${row}`, valueInputOption: "RAW", requestBody: { values: [[body.afbeeldingUrl]] } });
-      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: `${SHEET_TAB}!${kolomLetter(colAlt)}${row}`, valueInputOption: "RAW", requestBody: { values: [[body.altTekst]] } });
+      const afbCol = kolomLetter(colAfbIndex);
+      const altCol = kolomLetter(colAltIndex);
 
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
-    } catch(e) { return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) }; }
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${SHEET_TAB}!${afbCol}${row}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[body.afbeeldingUrl]] },
+      });
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${SHEET_TAB}!${altCol}${row}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[body.altTekst]] },
+      });
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, row, afbCol, altCol }) };
+    } catch(e) {
+      return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
+    }
   }
 
   return { statusCode: 400, headers, body: JSON.stringify({ error: "Onbekende actie" }) };
