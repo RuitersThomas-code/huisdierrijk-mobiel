@@ -320,32 +320,27 @@ async function kiesFoto(foto, card) {
 
 async function genereerAltTekst(titel, zoekterm, beschr) {
   const bron = beschr || zoekterm || "";
-
-  // Probeer Anthropic met browser-header
+  // Gebruik Netlify function als tussenlaag (geen CORS probleem)
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const resp = await fetch("/.netlify/functions/claude", {
       method:"POST",
-      headers:{
-        "Content-Type":"application/json",
-        "anthropic-dangerous-allow-browser":"true"
-      },
+      headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
-        model:"claude-haiku-4-5-20251001", max_tokens:50,
-        system:"Schrijf uitsluitend een Nederlandse alt-tekst (max 12 woorden, beschrijvend, niet beginnen met 'afbeelding van'). Geen aanhalingstekens, geen uitleg. Altijd in het Nederlands.",
-        messages:[{role:"user",content:`Artikel: "${titel}" | Foto toont: ${bron}`}]
+        apiKey: cfg.anthropicKey,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 60,
+        system: "Schrijf uitsluitend een Nederlandse alt-tekst (max 12 woorden, beschrijvend, niet beginnen met afbeelding van). Geen aanhalingstekens. Altijd in het Nederlands.",
+        messages:[{role:"user", content:"Artikel: " + titel + " | Foto toont: " + bron}]
       })
     });
     const d = await resp.json();
-    if (!d.error && d.content?.[0]?.text) {
+    if (!d.error && d.content && d.content[0] && d.content[0].text) {
       return d.content[0].text.trim().replace(/^["']|["']$/g,"");
     }
   } catch(e) {}
-
-  // Fallback: bouw Nederlandse alt-tekst op basis van titel + diersoort
-  const dierNL = {"kippen":"kippen","honden":"honden","katten":"katten","fretten":"fretten"}[diersoort] || diersoort;
+  // Fallback: Nederlandse alt-tekst op basis van artikeltitel
   const titelKort = titel.split(":")[0].split("?")[0].trim();
-  // Verwijder werkwoorden aan het begin voor een mooiere zin
-  const schoon = titelKort.replace(/^(hoe|wat|waarom|wanneer|welke|wie)\s+/i,"").slice(0,50);
+  const schoon = titelKort.replace(/^(hoe|wat|waarom|wanneer|welke|wie) /i,"").slice(0,50);
   return schoon.charAt(0).toUpperCase() + schoon.slice(1);
 }
 
