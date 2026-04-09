@@ -459,7 +459,7 @@ async function slaOpInSheet(artikel, afbeeldingUrl, altTekst) {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       action: "sheets_write",
-      rowIndex: artikel._rowIndex,
+      artikelId: artikel.id,
       afbeeldingUrl: afbeeldingUrl,
       altTekst: altTekst,
     })
