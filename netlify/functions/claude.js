@@ -1,7 +1,6 @@
 const { google } = require('googleapis');
 
-const SHEET_ID  = "1j-rzIr0Z_0922x6sBHOhAH9PWK8TWdPOwOUE1_l_42o";
-const SHEET_TAB = "Sheet1";
+const SHEET_ID = "1j-rzIr0Z_0922x6sBHOhAH9PWK8TWdPOwOUE1_l_42o";
 
 async function getSheetsClient() {
   const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -43,39 +42,40 @@ exports.handler = async (event) => {
     } catch(e) { return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) }; }
   }
 
-  // Google Sheets schrijven — zoek rij op via artikelId of titel
+  // Google Sheets schrijven
   if (body.action === "sheets_write") {
     try {
+      const tab = body.sheetTab || "schema_kippen";
       const sheets = await getSheetsClient();
 
       // Haal alle data op
       const dataResp = await sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: SHEET_TAB,
+        range: tab,
       });
       const rows = dataResp.data.values || [];
       if (rows.length < 2) return { statusCode: 400, headers, body: JSON.stringify({ error: "Sheet leeg" }) };
 
       const sheetHeaders = rows[0];
-      const colId    = sheetHeaders.indexOf("id");
-      const colAfb   = sheetHeaders.indexOf("afbeelding_url");
-      const colAlt   = sheetHeaders.indexOf("alt_tekst");
+      const colId  = sheetHeaders.indexOf("id");
+      const colAfb = sheetHeaders.indexOf("afbeelding_url");
+      const colAlt = sheetHeaders.indexOf("alt_tekst");
 
       if (colAfb === -1 || colAlt === -1) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: `Kolommen niet gevonden. Headers: ${sheetHeaders.join(', ')}` }) };
+        return { statusCode: 400, headers, body: JSON.stringify({ error: `Kolommen niet gevonden: ${sheetHeaders.join(', ')}` }) };
       }
 
-      // Zoek de juiste rij op basis van artikel id
+      // Zoek rij op basis van artikel id
       let rowIndex = -1;
       for (let i = 1; i < rows.length; i++) {
         if (String(rows[i][colId]) === String(body.artikelId)) {
-          rowIndex = i + 1; // 1-based voor Sheets API
+          rowIndex = i + 1;
           break;
         }
       }
 
       if (rowIndex === -1) {
-        return { statusCode: 404, headers, body: JSON.stringify({ error: `Artikel ID ${body.artikelId} niet gevonden` }) };
+        return { statusCode: 404, headers, body: JSON.stringify({ error: `Artikel ID ${body.artikelId} niet gevonden in ${tab}` }) };
       }
 
       const afbCol = kolomLetter(colAfb);
@@ -83,19 +83,19 @@ exports.handler = async (event) => {
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${SHEET_TAB}!${afbCol}${rowIndex}`,
+        range: `${tab}!${afbCol}${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [[body.afbeeldingUrl]] },
       });
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${SHEET_TAB}!${altCol}${rowIndex}`,
+        range: `${tab}!${altCol}${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [[body.altTekst]] },
       });
 
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, rowIndex, afbCol, altCol }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, rowIndex, tab }) };
     } catch(e) {
       return { statusCode: 500, headers, body: JSON.stringify({ error: e.message }) };
     }
