@@ -132,7 +132,13 @@
 </div>
 
 <script>
-const SHEET_TAB = "Sheet1";
+const SHEET_TABS = {
+  "kippen":  "schema_kippen",
+  "honden":  "schema_honden",
+  "katten":  "schema_katten",
+  "fretten": "schema_fretten",
+};
+// SHEET_TAB wordt dynamisch bepaald op basis van diersoort
 let cfg={}, huidigArtikel=null, alleArtikelen=[], gekozenFoto=null, diersoort="kippen", huidigZoekterm="";
 
 window.onload = () => {
@@ -178,7 +184,8 @@ function kiesDiersoort(soort, btn) {
 async function leesSheet() {
   if (!cfg.sheetsKey) throw new Error("Google Sheets API key ontbreekt — check instellingen ⚙️");
   const id = cfg.sheetId || "1j-rzIr0Z_0922x6sBHOhAH9PWK8TWdPOwOUE1_l_42o";
-  const resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(SHEET_TAB)}?key=${cfg.sheetsKey}`);
+  const tab = SHEET_TABS[diersoort] || "schema_kippen";
+  const resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(tab)}?key=${cfg.sheetsKey}`);
   if (!resp.ok) { const e = await resp.json(); throw new Error(e.error?.message || "Sheets fout"); }
   const data = await resp.json();
   const rijen = data.values || [];
@@ -238,52 +245,47 @@ async function zoekFotos() {
   } catch(e) { toonStatus("❌ "+e.message, "error"); document.getElementById("fotosLabel").textContent = ""; }
 }
 
-function bepaalZoekterm(titel, thema) {
-  // Vertaalwoordenboek NL -> EN voor veelvoorkomende huisdier-termen
-  const vertaling = {
-    "kippen":"chickens","kip":"chicken","kuikens":"chicks","kuiken":"chick",
-    "hanen":"roosters","haan":"rooster","hennen":"hens","hen":"hen",
-    "honden":"dogs","hond":"dog","katten":"cats","kat":"cat",
-    "fretten":"ferrets","fret":"ferret",
-    "gedrag":"behavior","verzorging":"care","voeding":"feeding","food":"food",
-    "gezondheid":"health","ziek":"sick","ziekte":"disease",
-    "huisvesting":"housing","ren":"coop","kippenren":"chicken coop",
-    "eieren":"eggs","ei":"egg","leggen":"laying",
-    "rassen":"breeds","ras":"breed",
-    "aanschaf":"getting","kopen":"buying",
-    "levensfasen":"life stages","jong":"young","oud":"old",
-    "grootbrengen":"raising","opfokken":"raising",
-    "pikorde":"pecking order","rangorde":"hierarchy",
-    "verenpikken":"feather pecking","verenpik":"feather pecking",
-    "broeds":"broody","broeden":"brooding",
-    "vaccinatie":"vaccination","vaccineren":"vaccinating",
-    "wurmen":"worms","vlooien":"fleas","mijten":"mites",
-    "activiteiten":"activities","spelen":"playing",
-    "winter":"winter","zomer":"summer",
-  };
+async function bepaalZoekterm(titel, thema) {
+  // Gebruik Claude via Netlify function voor een specifieke Engelse zoekterm
+  try {
+    const resp = await fetch("/.netlify/functions/claude", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        apiKey: cfg.anthropicKey,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 20,
+        system: "Geef uitsluitend een specifieke Engelse Unsplash zoekterm van 2-4 woorden die past bij het onderwerp van het artikel. Zorg dat de zoekterm het dier bevat. Geen uitleg, geen aanhalingstekens, alleen de zoekterm.",
+        messages: [{ role: "user", content: "Artikel: " + titel + " | Thema: " + thema + " | Dier: " + diersoort }]
+      })
+    });
+    const d = await resp.json();
+    if (!d.error && d.content && d.content[0]) {
+      return d.content[0].text.trim().replace(/[^\w\s]/g, "");
+    }
+  } catch(e) {}
 
-  // Haal woorden uit de titel
-  const woorden = titel.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(w => w.length > 3);
-
-  // Vertaal bekende woorden
-  const vertaald = woorden.map(w => vertaling[w] || null).filter(Boolean);
-
-  // Voeg diersoort altijd toe
-  const dierEN = vertaling[diersoort] || diersoort;
-
-  // Bouw zoekterm: diersoort + eerste 2 vertaalde woorden
-  const uniek = [...new Set([dierEN, ...vertaald])].slice(0, 3);
-  return Promise.resolve(uniek.join(" "));
+  // Fallback: gebruik thema + diersoort
+  const dierEN = {"kippen":"chickens","honden":"dogs","katten":"cats","fretten":"ferrets"}[diersoort] || diersoort;
+  const themaEN = {"gedrag":"behavior","verzorging":"care","voeding":"feeding","gezondheid":"health","huisvesting":"housing","eieren":"eggs","rassen":"breeds","aanschaf":"buying","levensfasen":"life stages","activiteiten":"activities"}[thema.toLowerCase()] || "";
+  return themaEN ? dierEN + " " + themaEN : dierEN;
 }
 
+// Bijhouden welke foto-IDs al gebruikt zijn (in sessie)
+const gebruikteIds = new Set();
+
 async function zoekUnsplash(zoekterm) {
-  const resp = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(zoekterm)}&per_page=10&orientation=landscape&content_filter=high`,
-    {headers:{"Authorization":`Client-ID ${cfg.unsplashKey}`}});
-  if (!resp.ok) throw new Error("Unsplash fout: "+resp.status);
-  return (await resp.json()).results||[];
+  // Probeer meerdere pagina's om variatie te krijgen
+  const pagina = Math.floor(Math.random() * 3) + 1;
+  const resp = await fetch(
+    `https://api.unsplash.com/search/photos?query=${encodeURIComponent(zoekterm)}&per_page=20&page=${pagina}&orientation=landscape&content_filter=high`,
+    {headers: {"Authorization": `Client-ID ${cfg.unsplashKey}`}}
+  );
+  if (!resp.ok) throw new Error("Unsplash fout: " + resp.status);
+  const alle = (await resp.json()).results || [];
+  // Filter al gebruikte foto's eruit
+  const nieuw = alle.filter(f => !gebruikteIds.has(f.id));
+  return nieuw.slice(0, 10);
 }
 
 function toonFotoGrid(fotos) {
@@ -454,11 +456,13 @@ function toonStatus(msg,type){const b=document.getElementById("statusBar");b.inn
 function verbergStatus(){document.getElementById("statusBar").className="status-bar";}
 
 async function slaOpInSheet(artikel, afbeeldingUrl, altTekst) {
+  const tab = SHEET_TABS[diersoort] || "schema_kippen";
   const resp = await fetch("/.netlify/functions/claude", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       action: "sheets_write",
+      sheetTab: tab,
       artikelId: artikel.id,
       afbeeldingUrl: afbeeldingUrl,
       altTekst: altTekst,
