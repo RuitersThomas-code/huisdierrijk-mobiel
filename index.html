@@ -367,7 +367,7 @@ async function bevestig() {
     toonStatus('<span class="spinner"></span> Afbeelding uploaden naar WordPress...', "info");
     const wpMediaUrl = await uploadNaarWordPress(gekozenFoto, huidigArtikel.titel, altTekst);
     toonStatus('<span class="spinner"></span> Metadata opslaan...', "info");
-    await slaOpAlsWpDraft(huidigArtikel, wpMediaUrl, altTekst);
+    await slaOpInSheet(huidigArtikel, wpMediaUrl, altTekst);
     fetch(`https://api.unsplash.com/photos/${gekozenFoto.id}/download`,{headers:{"Authorization":`Client-ID ${cfg.unsplashKey}`}}).catch(()=>{});
     verbergStatus();
     toonSucces(wpMediaUrl, altTekst);
