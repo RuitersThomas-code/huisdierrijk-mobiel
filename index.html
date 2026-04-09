@@ -452,6 +452,22 @@ function slaOver() {
 
 function toonStatus(msg,type){const b=document.getElementById("statusBar");b.innerHTML=msg;b.className="status-bar "+type;}
 function verbergStatus(){document.getElementById("statusBar").className="status-bar";}
+
+async function slaOpInSheet(artikel, afbeeldingUrl, altTekst) {
+  const resp = await fetch("/.netlify/functions/claude", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action: "sheets_write",
+      rowIndex: artikel._rowIndex,
+      afbeeldingUrl: afbeeldingUrl,
+      altTekst: altTekst,
+    })
+  });
+  const data = await resp.json();
+  if (!data.success) throw new Error("Sheet schrijven mislukt: " + (data.error || "onbekend"));
+}
+
 </script>
 </body>
 </html>
