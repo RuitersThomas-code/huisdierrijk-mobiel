@@ -138,7 +138,11 @@ const SHEET_TABS = {
   "katten":  "schema_katten",
   "fretten": "schema_fretten",
 };
-// SHEET_TAB wordt dynamisch bepaald op basis van diersoort
+
+// Afbeelding formaten: 17:9 verhouding
+const HERO_W  = 1920, HERO_H  = 1017;  // hero: featured-image-wrapper
+const THUMB_W = 600,  THUMB_H = 338;   // thumb: related-image-wrapper
+
 let cfg={}, huidigArtikel=null, alleArtikelen=[], gekozenFoto=null, diersoort="kippen", huidigZoekterm="";
 
 window.onload = () => {
@@ -159,13 +163,13 @@ window.onload = () => {
 
 function slaInstellingenOp() {
   cfg = {
-    sheetsKey: document.getElementById("sheetsKey").value.trim(),
-    sheetId: document.getElementById("sheetId").value.trim(),
-    unsplashKey: document.getElementById("unsplashKey").value.trim(),
+    sheetsKey:    document.getElementById("sheetsKey").value.trim(),
+    sheetId:      document.getElementById("sheetId").value.trim(),
+    unsplashKey:  document.getElementById("unsplashKey").value.trim(),
     anthropicKey: document.getElementById("anthropicKey").value.trim(),
-    wpUrl: document.getElementById("wpUrl").value.trim().replace(/\/$/,""),
-    wpUser: document.getElementById("wpUser").value.trim(),
-    wpPass: document.getElementById("wpPass").value.trim(),
+    wpUrl:        document.getElementById("wpUrl").value.trim().replace(/\/$/,""),
+    wpUser:       document.getElementById("wpUser").value.trim(),
+    wpPass:       document.getElementById("wpPass").value.trim(),
   };
   localStorage.setItem("huisdierrijk_cfg", JSON.stringify(cfg));
   toonStatus("✅ Opgeslagen!", "success");
@@ -173,6 +177,7 @@ function slaInstellingenOp() {
 }
 
 function toggleSettings() { document.getElementById("settingsPanel").classList.toggle("open"); }
+
 function kiesDiersoort(soort, btn) {
   diersoort = soort;
   document.querySelectorAll(".diersoort-btn").forEach(b => b.classList.remove("active"));
@@ -183,7 +188,7 @@ function kiesDiersoort(soort, btn) {
 
 async function leesSheet() {
   if (!cfg.sheetsKey) throw new Error("Google Sheets API key ontbreekt — check instellingen ⚙️");
-  const id = cfg.sheetId || "1j-rzIr0Z_0922x6sBHOhAH9PWK8TWdPOwOUE1_l_42o";
+  const id  = cfg.sheetId || "1j-rzIr0Z_0922x6sBHOhAH9PWK8TWdPOwOUE1_l_42o";
   const tab = SHEET_TABS[diersoort] || "schema_kippen";
   const resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent(tab)}?key=${cfg.sheetsKey}`);
   if (!resp.ok) { const e = await resp.json(); throw new Error(e.error?.message || "Sheets fout"); }
@@ -246,7 +251,6 @@ async function zoekFotos() {
 }
 
 async function bepaalZoekterm(titel, thema) {
-  // Gebruik Claude via Netlify function voor een specifieke Engelse zoekterm
   try {
     const resp = await fetch("/.netlify/functions/claude", {
       method: "POST",
@@ -264,18 +268,14 @@ async function bepaalZoekterm(titel, thema) {
       return d.content[0].text.trim().replace(/[^\w\s]/g, "");
     }
   } catch(e) {}
-
-  // Fallback: gebruik thema + diersoort
   const dierEN = {"kippen":"chickens","honden":"dogs","katten":"cats","fretten":"ferrets"}[diersoort] || diersoort;
   const themaEN = {"gedrag":"behavior","verzorging":"care","voeding":"feeding","gezondheid":"health","huisvesting":"housing","eieren":"eggs","rassen":"breeds","aanschaf":"buying","levensfasen":"life stages","activiteiten":"activities"}[thema.toLowerCase()] || "";
   return themaEN ? dierEN + " " + themaEN : dierEN;
 }
 
-// Bijhouden welke foto-IDs al gebruikt zijn (in sessie)
 const gebruikteIds = new Set();
 
 async function zoekUnsplash(zoekterm) {
-  // Probeer meerdere pagina's om variatie te krijgen
   const pagina = Math.floor(Math.random() * 3) + 1;
   const resp = await fetch(
     `https://api.unsplash.com/search/photos?query=${encodeURIComponent(zoekterm)}&per_page=20&page=${pagina}&orientation=landscape&content_filter=high`,
@@ -283,7 +283,6 @@ async function zoekUnsplash(zoekterm) {
   );
   if (!resp.ok) throw new Error("Unsplash fout: " + resp.status);
   const alle = (await resp.json()).results || [];
-  // Filter al gebruikte foto's eruit
   const nieuw = alle.filter(f => !gebruikteIds.has(f.id));
   return nieuw.slice(0, 10);
 }
@@ -322,7 +321,6 @@ async function kiesFoto(foto, card) {
 
 async function genereerAltTekst(titel, zoekterm, beschr) {
   const bron = beschr || zoekterm || "";
-  // Gebruik Netlify function als tussenlaag (geen CORS probleem)
   try {
     const resp = await fetch("/.netlify/functions/claude", {
       method:"POST",
@@ -340,7 +338,6 @@ async function genereerAltTekst(titel, zoekterm, beschr) {
       return d.content[0].text.trim().replace(/^["']|["']$/g,"");
     }
   } catch(e) {}
-  // Fallback: Nederlandse alt-tekst op basis van artikeltitel
   const titelKort = titel.split(":")[0].split("?")[0].trim();
   const schoon = titelKort.replace(/^(hoe|wat|waarom|wanneer|welke|wie) /i,"").slice(0,50);
   return schoon.charAt(0).toUpperCase() + schoon.slice(1);
@@ -359,118 +356,227 @@ async function regenereerAlt() {
   } catch(e) { document.getElementById("altTekst").placeholder="Typ hier..."; document.getElementById("confirmBtn").disabled=false; }
 }
 
+// ── Afbeelding verwerking ─────────────────────────────────────────
+
+/**
+ * Laadt een URL in een HTMLImageElement.
+ * Gebruikt een tijdelijke canvas om cross-origin problemen te omzeilen.
+ */
+function laadAfbeelding(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Afbeelding laden mislukt"));
+    img.src = url;
+  });
+}
+
+/**
+ * Crop een HTMLImageElement naar 17:9 (center crop) en resize naar
+ * de opgegeven breedte × hoogte. Geeft een Blob terug als WebP.
+ */
+function cropNaarWebP(img, breedte, hoogte) {
+  const canvas = document.createElement("canvas");
+  canvas.width  = breedte;
+  canvas.height = hoogte;
+  const ctx = canvas.getContext("2d");
+
+  const doelRatio = breedte / hoogte;
+  const origRatio = img.naturalWidth / img.naturalHeight;
+
+  let sx, sy, sw, sh;
+  if (origRatio > doelRatio) {
+    // Origineel breder dan nodig → crop links/rechts
+    sh = img.naturalHeight;
+    sw = Math.round(sh * doelRatio);
+    sx = Math.round((img.naturalWidth - sw) / 2);
+    sy = 0;
+  } else {
+    // Origineel hoger dan nodig → crop boven/onder
+    sw = img.naturalWidth;
+    sh = Math.round(sw / doelRatio);
+    sx = 0;
+    sy = Math.round((img.naturalHeight - sh) / 2);
+  }
+
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, breedte, hoogte);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob);
+      else reject(new Error("Canvas toBlob mislukt"));
+    }, "image/webp", 0.85);
+  });
+}
+
+/**
+ * Maakt een WordPress-vriendelijke bestandsnaam op basis van de artikeltitel.
+ */
+function maakBestandsnaam(titel, suffix) {
+  const basis = titel
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 60);
+  return `${basis}-${suffix}.webp`;
+}
+
+/**
+ * Upload een Blob naar de WordPress mediatheek.
+ * Geeft de source_url terug.
+ */
+async function uploadBlobNaarWordPress(blob, bestandsnaam, altTekst) {
+  const token = btoa(`${cfg.wpUser}:${cfg.wpPass}`);
+  const resp = await fetch(`${cfg.wpUrl}/wp-json/wp/v2/media`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Basic ${token}`,
+      "Content-Disposition": `attachment; filename="${bestandsnaam}"`,
+      "Content-Type": "image/webp",
+    },
+    body: blob,
+  });
+  if (!resp.ok) {
+    const e = await resp.json().catch(() => ({}));
+    throw new Error(`Upload fout (${bestandsnaam}): ${e.message || resp.status}`);
+  }
+  const data = await resp.json();
+
+  // Alt-tekst instellen
+  if (altTekst) {
+    await fetch(`${cfg.wpUrl}/wp-json/wp/v2/media/${data.id}`, {
+      method: "POST",
+      headers: { "Authorization": `Basic ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ alt_text: altTekst }),
+    });
+  }
+
+  return data.source_url;
+}
+
+/**
+ * Hoofdfunctie: download Unsplash foto → crop → upload hero + thumb.
+ * Geeft { heroUrl, thumbUrl } terug.
+ */
+async function uploadNaarWordPress(foto, titel, altTekst) {
+  // Download de volledige resolutie foto van Unsplash
+  const fotoResp = await fetch(foto.urls.full || foto.urls.regular);
+  if (!fotoResp.ok) throw new Error("Foto downloaden mislukt");
+  const origBlob = await fotoResp.blob();
+  const origUrl  = URL.createObjectURL(origBlob);
+
+  let heroUrl, thumbUrl;
+  try {
+    const img = await laadAfbeelding(origUrl);
+
+    // Hero: 1920×1017 WebP → afbeelding_url (featured-image-wrapper)
+    toonStatus('<span class="spinner"></span> Hero uploaden (1920×1017)...', "info");
+    const heroBlob  = await cropNaarWebP(img, HERO_W, HERO_H);
+    const heroNaam  = maakBestandsnaam(titel, "hero");
+    heroUrl = await uploadBlobNaarWordPress(heroBlob, heroNaam, altTekst);
+
+    // Thumb: 600×338 WebP → thumbnail_url (related-image-wrapper)
+    toonStatus('<span class="spinner"></span> Thumbnail uploaden (600×338)...', "info");
+    const thumbBlob = await cropNaarWebP(img, THUMB_W, THUMB_H);
+    const thumbNaam = maakBestandsnaam(titel, "thumb");
+    thumbUrl = await uploadBlobNaarWordPress(thumbBlob, thumbNaam, altTekst);
+
+  } finally {
+    URL.revokeObjectURL(origUrl);
+  }
+
+  return { heroUrl, thumbUrl };
+}
+
+// ── Bevestig & opslaan ────────────────────────────────────────────
+
 async function bevestig() {
   if (!gekozenFoto) return;
   const altTekst = document.getElementById("altTekst").value.trim();
   if (!altTekst) { toonStatus("❌ Vul een alt-tekst in","error"); return; }
+
   document.getElementById("confirmBtn").disabled = true;
   document.getElementById("confirmBtn").innerHTML = '<span class="spinner"></span> Uploaden...';
+
   try {
-    toonStatus('<span class="spinner"></span> Afbeelding uploaden naar WordPress...', "info");
-    const wpMediaUrl = await uploadNaarWordPress(gekozenFoto, huidigArtikel.titel, altTekst);
-    toonStatus('<span class="spinner"></span> Metadata opslaan...', "info");
-    await slaOpInSheet(huidigArtikel, wpMediaUrl, altTekst);
-    fetch(`https://api.unsplash.com/photos/${gekozenFoto.id}/download`,{headers:{"Authorization":`Client-ID ${cfg.unsplashKey}`}}).catch(()=>{});
+    const { heroUrl, thumbUrl } = await uploadNaarWordPress(gekozenFoto, huidigArtikel.titel, altTekst);
+
+    toonStatus('<span class="spinner"></span> Metadata opslaan in Google Sheets...', "info");
+    await slaOpInSheet(huidigArtikel, heroUrl, thumbUrl, altTekst);
+
+    // Unsplash download event triggeren (verplicht bij API gebruik)
+    fetch(`https://api.unsplash.com/photos/${gekozenFoto.id}/download`, {
+      headers: {"Authorization": `Client-ID ${cfg.unsplashKey}`}
+    }).catch(() => {});
+
     verbergStatus();
-    toonSucces(wpMediaUrl, altTekst);
+    toonSucces(heroUrl, thumbUrl, altTekst);
+
   } catch(e) {
-    toonStatus("❌ "+e.message, "error");
+    toonStatus("❌ " + e.message, "error");
     document.getElementById("confirmBtn").disabled = false;
     document.getElementById("confirmBtn").innerHTML = "✓ Uploaden & opslaan";
   }
 }
 
-async function uploadNaarWordPress(foto, titel, altTekst) {
-  const fotoResp = await fetch(foto.urls.regular);
-  if (!fotoResp.ok) throw new Error("Foto downloaden mislukt");
-  const blob = await fotoResp.blob();
-  const naam = titel.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9\s-]/g,"").replace(/\s+/g,"-").replace(/-+/g,"-").slice(0,60);
-  const token = btoa(`${cfg.wpUser}:${cfg.wpPass}`);
-  const resp = await fetch(`${cfg.wpUrl}/wp-json/wp/v2/media`,{
-    method:"POST",
-    headers:{"Authorization":`Basic ${token}`,"Content-Disposition":`attachment; filename="${naam}.jpg"`,"Content-Type":blob.type||"image/jpeg"},
-    body:blob
+async function slaOpInSheet(artikel, heroUrl, thumbUrl, altTekst) {
+  const tab = SHEET_TABS[diersoort] || "schema_kippen";
+  const resp = await fetch("/.netlify/functions/claude", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      action:        "sheets_write",
+      sheetTab:      tab,
+      artikelId:     artikel.id,
+      afbeeldingUrl: heroUrl,    // hero → afbeelding_url kolom
+      thumbnailUrl:  thumbUrl,   // thumb → Thumbnail_url kolom
+      altTekst:      altTekst,
+    })
   });
-  if (!resp.ok) { const e=await resp.json().catch(()=>({})); throw new Error(`Upload fout: ${e.message||resp.status}`); }
   const data = await resp.json();
-  await fetch(`${cfg.wpUrl}/wp-json/wp/v2/media/${data.id}`,{
-    method:"POST", headers:{"Authorization":`Basic ${token}`,"Content-Type":"application/json"},
-    body:JSON.stringify({alt_text:altTekst})
-  });
-  return data.source_url;
+  if (!data.success) throw new Error("Sheet schrijven mislukt: " + (data.error || "onbekend"));
 }
 
-async function slaOpAlsWpDraft(artikel, afbeeldingUrl, altTekst) {
-  const token = btoa(`${cfg.wpUser}:${cfg.wpPass}`);
-  const slug = artikel.onderwerp_slug || artikel.titel.toLowerCase().normalize("NFD")
-    .replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9\s-]/g,"").replace(/\s+/g,"-").slice(0,60);
-
-  // Check bestaande draft
-  const check = await fetch(`${cfg.wpUrl}/wp-json/wp/v2/pages?slug=${encodeURIComponent(slug)}&status=draft&per_page=1`,
-    {headers:{"Authorization":`Basic ${token}`}});
-  const bestaande = await check.json();
-
-  const body = {
-    title: artikel.titel, slug, status:"draft",
-    meta: { _huisdierrijk_afbeelding_url: afbeeldingUrl, _huisdierrijk_alt_tekst: altTekst }
-  };
-
-  const url = bestaande.length > 0
-    ? `${cfg.wpUrl}/wp-json/wp/v2/pages/${bestaande[0].id}`
-    : `${cfg.wpUrl}/wp-json/wp/v2/pages`;
-
-  const resp = await fetch(url, {
-    method:"POST",
-    headers:{"Authorization":`Basic ${token}`,"Content-Type":"application/json"},
-    body:JSON.stringify(body)
-  });
-  if (!resp.ok) { const e=await resp.json().catch(()=>({})); throw new Error(`Draft fout: ${e.message||resp.status}`); }
-}
-
-function toonSucces(wpUrl, altTekst) {
+function toonSucces(heroUrl, thumbUrl, altTekst) {
   document.getElementById("artikelSection").style.display = "none";
   document.getElementById("doneScreen").classList.add("show");
   document.getElementById("doneSub").innerHTML =
     `<strong>${huidigArtikel.titel.slice(0,50)}</strong><br><br>`+
-    `✓ Afbeelding geüpload naar WordPress<br>`+
-    `✓ Metadata opgeslagen<br><br>`+
+    `✓ Hero geüpload (1920×1017 WebP)<br>`+
+    `✓ Thumbnail geüpload (600×338 WebP)<br>`+
+    `✓ Beide URLs opgeslagen in Google Sheets<br><br>`+
     `<span style="color:var(--accent);font-size:.72rem">Draai straks op je laptop: python generator.py --diersoort ${diersoort}</span>`;
 }
 
 function volgend() {
   alleArtikelen.shift();
   document.getElementById("doneScreen").classList.remove("show");
-  if (!alleArtikelen.length) { document.getElementById("emptyState").style.display="block"; document.getElementById("loadBtn").disabled=false; return; }
+  if (!alleArtikelen.length) {
+    document.getElementById("emptyState").style.display = "block";
+    document.getElementById("loadBtn").disabled = false;
+    return;
+  }
   huidigArtikel = alleArtikelen[0];
   toonArtikel();
 }
 
 function slaOver() {
   alleArtikelen.shift();
-  if (!alleArtikelen.length) { document.getElementById("artikelSection").style.display="none"; document.getElementById("emptyState").style.display="block"; document.getElementById("loadBtn").disabled=false; return; }
+  if (!alleArtikelen.length) {
+    document.getElementById("artikelSection").style.display = "none";
+    document.getElementById("emptyState").style.display = "block";
+    document.getElementById("loadBtn").disabled = false;
+    return;
+  }
   huidigArtikel = alleArtikelen[0];
   toonArtikel();
 }
 
 function toonStatus(msg,type){const b=document.getElementById("statusBar");b.innerHTML=msg;b.className="status-bar "+type;}
 function verbergStatus(){document.getElementById("statusBar").className="status-bar";}
-
-async function slaOpInSheet(artikel, afbeeldingUrl, altTekst) {
-  const tab = SHEET_TABS[diersoort] || "schema_kippen";
-  const resp = await fetch("/.netlify/functions/claude", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      action: "sheets_write",
-      sheetTab: tab,
-      artikelId: artikel.id,
-      afbeeldingUrl: afbeeldingUrl,
-      altTekst: altTekst,
-    })
-  });
-  const data = await resp.json();
-  if (!data.success) throw new Error("Sheet schrijven mislukt: " + (data.error || "onbekend"));
-}
 
 </script>
 </body>
