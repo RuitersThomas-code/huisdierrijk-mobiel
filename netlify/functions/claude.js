@@ -57,9 +57,10 @@ exports.handler = async (event) => {
       if (rows.length < 2) return { statusCode: 400, headers, body: JSON.stringify({ error: "Sheet leeg" }) };
 
       const sheetHeaders = rows[0];
-      const colId  = sheetHeaders.indexOf("id");
-      const colAfb = sheetHeaders.indexOf("afbeelding_url");
-      const colAlt = sheetHeaders.indexOf("alt_tekst");
+      const colId    = sheetHeaders.indexOf("id");
+      const colAfb   = sheetHeaders.indexOf("afbeelding_url");
+      const colThumb = sheetHeaders.indexOf("Thumbnail_url");  // Let op: hoofdletter T
+      const colAlt   = sheetHeaders.indexOf("alt_tekst");
 
       if (colAfb === -1 || colAlt === -1) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: `Kolommen niet gevonden: ${sheetHeaders.join(', ')}` }) };
@@ -78,19 +79,28 @@ exports.handler = async (event) => {
         return { statusCode: 404, headers, body: JSON.stringify({ error: `Artikel ID ${body.artikelId} niet gevonden in ${tab}` }) };
       }
 
-      const afbCol = kolomLetter(colAfb);
-      const altCol = kolomLetter(colAlt);
-
+      // Schrijf afbeelding_url (hero)
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${tab}!${afbCol}${rowIndex}`,
+        range: `${tab}!${kolomLetter(colAfb)}${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [[body.afbeeldingUrl]] },
       });
 
+      // Schrijf Thumbnail_url (thumb) — alleen als kolom bestaat én waarde meegegeven is
+      if (colThumb !== -1 && body.thumbnailUrl) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `${tab}!${kolomLetter(colThumb)}${rowIndex}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [[body.thumbnailUrl]] },
+        });
+      }
+
+      // Schrijf alt_tekst
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${tab}!${altCol}${rowIndex}`,
+        range: `${tab}!${kolomLetter(colAlt)}${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [[body.altTekst]] },
       });
