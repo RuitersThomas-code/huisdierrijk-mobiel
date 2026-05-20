@@ -67,6 +67,16 @@
   .empty-state{text-align:center;padding:3rem 1rem;color:var(--muted);display:none;}
   .empty-icon{font-size:2.5rem;margin-bottom:.75rem;}
   .empty-text{font-size:.85rem;line-height:1.6;}
+  .fotos-label-row{display:flex;align-items:center;gap:.4rem;margin-bottom:.6rem;}
+  .fotos-label-row .fotos-label{margin-bottom:0;flex:1;}
+  .zoek-anders-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:.22rem .5rem;border-radius:6px;cursor:pointer;font-family:inherit;font-size:.68rem;white-space:nowrap;flex-shrink:0;}
+  .zoek-anders-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .zoek-anders-panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.7rem;margin-bottom:.75rem;display:none;}
+  .zoek-anders-panel.open{display:block;}
+  .zoek-anders-panel .zoek-row{display:flex;gap:.4rem;}
+  .zoek-anders-panel input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.45rem .6rem;color:var(--text);font-family:inherit;font-size:.82rem;}
+  .zoek-anders-panel input:focus{outline:none;border-color:var(--accent);}
+  .zoek-anders-panel .zoek-go{background:var(--accent);color:#000;border:none;border-radius:6px;padding:.45rem .8rem;font-family:inherit;font-weight:600;font-size:.8rem;cursor:pointer;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .spinner{display:inline-block;width:13px;height:13px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:5px;}
 </style>
@@ -110,7 +120,16 @@
       <div class="article-meta" id="artikelMeta"></div>
       <div class="article-title" id="artikelTitel"></div>
     </div>
-    <div class="fotos-label" id="fotosLabel"></div>
+    <div class="fotos-label-row">
+      <div class="fotos-label" id="fotosLabel"></div>
+      <button class="zoek-anders-btn" id="zoekAndersBtn" onclick="toggleZoekAnders()" style="display:none">✏️ Zoek anders</button>
+    </div>
+    <div class="zoek-anders-panel" id="zoekAndersPanel">
+      <div class="zoek-row">
+        <input type="text" id="zoekAndersInput" placeholder="Bijv: chicken feeding mistakes" onkeydown="if(event.key==='Enter')voerZoekAndersuit()">
+        <button class="zoek-go" onclick="voerZoekAndersuit()">Zoeken →</button>
+      </div>
+    </div>
     <div class="foto-grid" id="fotoGrid"></div>
     <button class="meer-btn" id="meerBtn" style="display:none" onclick="laadMeerFotos()">↻ Laad 10 andere foto's</button>
     <div class="alt-section" id="altSection" style="display:none">
@@ -239,6 +258,8 @@ function toonArtikel() {
   document.getElementById("confirmBtn").disabled = true;
   document.getElementById("fotoGrid").innerHTML = "";
   document.getElementById("meerBtn").style.display = "none";
+  document.getElementById("zoekAndersBtn").style.display = "none";
+  document.getElementById("zoekAndersPanel").classList.remove("open");
   gekozenFoto = null; huidigZoekterm = ""; huidigeUnsplashPagina = 1;
   zoekFotos();
 }
@@ -273,6 +294,7 @@ async function zoekFotos() {
     document.getElementById("fotosLabel").textContent = `📸 Kies een foto — "${huidigZoekterm}"`;
     toonFotoGrid(fotos);
     document.getElementById("meerBtn").style.display = "block";
+    document.getElementById("zoekAndersBtn").style.display = "inline-flex";
   } catch(e) { toonStatus("❌ "+e.message, "error"); document.getElementById("fotosLabel").textContent = ""; }
 }
 
@@ -598,6 +620,44 @@ function slaOver() {
   }
   huidigArtikel = alleArtikelen[0];
   toonArtikel();
+}
+
+function toggleZoekAnders() {
+  const panel = document.getElementById("zoekAndersPanel");
+  panel.classList.toggle("open");
+  if (panel.classList.contains("open")) {
+    const input = document.getElementById("zoekAndersInput");
+    input.value = huidigZoekterm;
+    input.focus();
+    input.select();
+  }
+}
+
+async function voerZoekAndersuit() {
+  const input = document.getElementById("zoekAndersInput");
+  const nieuweTerm = input.value.trim();
+  if (!nieuweTerm) return;
+  document.getElementById("zoekAndersPanel").classList.remove("open");
+  document.getElementById("fotoGrid").innerHTML = "";
+  document.getElementById("meerBtn").style.display = "none";
+  document.getElementById("altSection").style.display = "none";
+  document.getElementById("confirmBtn").disabled = true;
+  gekozenFoto = null;
+  huidigZoekterm = nieuweTerm;
+  huidigeUnsplashPagina = 1;
+  document.getElementById("fotosLabel").textContent = `🔍 Zoeken: "${huidigZoekterm}"`;
+  try {
+    const fotos = await zoekUnsplash(huidigZoekterm, 1);
+    if (!fotos.length) {
+      document.getElementById("fotosLabel").textContent = `⚠️ Geen foto's gevonden voor "${huidigZoekterm}"`;
+      document.getElementById("zoekAndersBtn").style.display = "inline-flex";
+      return;
+    }
+    document.getElementById("fotosLabel").textContent = `📸 Kies een foto — "${huidigZoekterm}"`;
+    toonFotoGrid(fotos);
+    document.getElementById("meerBtn").style.display = "block";
+    document.getElementById("zoekAndersBtn").style.display = "inline-flex";
+  } catch(e) { toonStatus("❌ " + e.message, "error"); }
 }
 
 function toonStatus(msg,type){const b=document.getElementById("statusBar");b.innerHTML=msg;b.className="status-bar "+type;}
